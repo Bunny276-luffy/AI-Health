@@ -1,0 +1,56 @@
+===============================================================
+NeuroScan: Uncertainty-Aware AI Tumor Detection System
+===============================================================
+Date: March 12, 2026
+
+1. PROJECT OVERVIEW
+-------------------
+We successfully built a full-stack, cross-platform web application for advanced AI medical imaging. The system allows clinicians to upload scans (CT, MRI, Ultrasound), runs a simulated edge-optimized deep learning inference pipeline, and visualizes uncertainties alongside standard tumor classification.
+
+2. TECHNOLOGY STACK
+-------------------
+- Frontend: Next.js 14, React, Tailwind CSS, TypeScript
+- Backend: Python, FastAPI, Uvicorn, OpenCV, ReportLab
+- Real-time communication: Axios (Frontend) -> FastAPI REST endpoints
+
+3. FEATURES IMPLEMENTED & COMPLETED
+-----------------------------------
+[x] Project Setup & Architecture
+    - Separate backend and frontend directories established.
+    - CORS configured for cross-origin communication between Next.js and FastAPI.
+
+[x] Backend (FastAPI Python Application)
+    - Image Preprocessing Mock: Setup to accept file uploads (Images/DICOM).
+    - AI Inference Simulation: Mock PyTorch model that generates:
+        - Tumor Probability (%)
+        - Confidence Score (%)
+        - Bounding Boxes coordinates.
+        - Heatmap data points.
+    - Uncertainty Estimation: Generates Aleatoric (data noise) and Epistemic (model ignorance) metrics.
+    - Longitudinal Progression Analysis: Logic to compare "Baseline" vs "Current" scans to track tumor growth.
+    - Self-Calibrating Control Loop: Built logic that triggers re-analysis automatically if high uncertainty is detected.
+    - PDF Report Generation: A `reportlab` service mapping inference JSON into a professional downloadable Medical Report PDF.
+
+[x] Frontend (Next.js Application)
+    - Responsive dark-mode medical UI layout (`layout.tsx`, `globals.css`).
+    - Sidebar navigation component.
+    - Interactive Drag & Drop "Image Upload Panel" supporting Single Scan and Progression (dual scan) modes.
+    - Diagnostic Visualization Viewer: Displays the scan with toggleable Heatmap rendering and standard Bounding Boxes.
+    - Uncertainty Dashboard: Renders dynamic progress bars tracking Aleatoric/Epistemic confidence metrics. Includes automatic Clinical Warnings on low confidence.
+    - Diagnostic Summary Panel: Textual breakdown of the inference results.
+    - PDF Download functionality: The frontend dynamically posts results to the backend `/report` endpoint and handles the file streaming to trigger a browser download.
+
+[x] Bug Fixes & Refinements
+    - Fixed hydration mismatch errors caused by browser extensions injecting code into the HTML `<body>` by aggressively applying `suppressHydrationWarning`.
+    - Fixed React-Hot-Toast strict TypeScript prop checking.
+    - Cleaned up Next.js auto-generated nested `.git` repository and pushed correctly to GitHub.
+
+4. NEXT STEPS (Future Enhancements)
+-----------------------------------
+- Integration of actual pre-trained Deep Learning weights (ResNet, U-Net) instead of mock deterministic outputs.
+- Database connection (PostgreSQL/MongoDB) to save Patient Histories.
+- Genuine DICOM image unspooling using Python `pydicom`.
+
+===============================================================
+End of Summary
+===============================================================
