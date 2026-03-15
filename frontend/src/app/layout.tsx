@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${inter.className} bg-slate-900 text-slate-50 min-h-screen selection:bg-blue-500/30`}>
+      <body className={`${inter.className} bg-slate-900 text-slate-50 min-h-screen selection:bg-blue-500/30`} suppressHydrationWarning>
         {children}
         <Toaster 
           position="bottom-right" 

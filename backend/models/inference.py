@@ -1,61 +1,97 @@
+import numpy as np
+import cv2
+import onnxruntime as ort
 from typing import Dict, Any, List
-import random
-import math
+import os
+import time
 
-class InferenceModelMock:
+class InferenceModelONNX:
     """
-    Simulates a PyTorch Deep Learning model inference for tumor detection.
-    This generates realistic-looking mock data for demonstration purposes,
-    including Aleatoric (data noise) and Epistemic (model knowledge) uncertainty.
+    Real Deep Learning inference using ONNXRuntime and a U-Net model.
     """
-    
     def __init__(self):
-        self.model_name = "ResNet50-Neuro-Ensemble-v2"
+        self.model_name = "U-Net (ONNX Edge)"
         self.calibration_factor = 1.0
+        
+        # Load ONNX model
+        model_path = os.path.join(os.path.dirname(__file__), "..", "models", "unet.onnx")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"ONNX model not found at {model_path}. Please run export_unet_local.py")
+        
+        # Initialize ONNX Runtime session
+        self.ort_session = ort.InferenceSession(model_path)
+        self.input_name = self.ort_session.get_inputs()[0].name
         
     def analyze_scan(self, image_data: bytes, require_calibration: bool = False) -> Dict[str, Any]:
         """
-        Simulates running the ensemble model over the scan.
+        Runs real ONNX inference over the uploaded scan.
         """
-        # Simulate base confidence based on 'image quality' (randomized for mock)
-        base_confidence = random.uniform(0.65, 0.99)
+        start_time = time.time()
+        
+        # 1. Image Preprocessing
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("Invalid image data.")
+            
+        # U-Net typically expects RGB, 256x256
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (256, 256))
+        
+        # Normalize to [0, 1] and standardize (ImageNet stats)
+        img_normalized = img_resized.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_standardized = (img_normalized - mean) / std
+        
+        # Format for ONNX: [B, C, H, W]
+        input_tensor = np.transpose(img_standardized, (2, 0, 1))
+        input_tensor = np.expand_dims(input_tensor, axis=0)
+        
+        # 2. ONNX Edge Inference
+        outputs = self.ort_session.run(None, {self.input_name: input_tensor})
+        out_tensor = outputs[0] # Shape: [1, 1, 256, 256]
+        
+        # Apply sigmoid to get probabilities
+        prob_map = 1.0 / (1.0 + np.exp(-out_tensor[0, 0]))
+        
+        # 3. Post-processing
+        # Calculate real confidence from the probability distribution
+        base_confidence = float(np.mean(prob_map[prob_map > 0.5]) if np.any(prob_map > 0.5) else 1 - float(np.mean(prob_map)))
+        tumor_detected = bool(np.max(prob_map) > 0.5)
+        prob_score = float(np.max(prob_map))
         
         if require_calibration:
-            # Self-calibrating diagnostic control enhances confidence
             self.calibration_factor = 1.15
             base_confidence = min(0.99, base_confidence * self.calibration_factor)
-        
-        # Calculate simulated uncertainties
-        # Aleatoric Uncertainty: Inherent data noise (e.g., poor scan quality, artifacts)
-        aleatoric_raw = random.uniform(0.01, 0.4)
-        aleatoric_uncertainty = aleatoric_raw * (1.0 if not require_calibration else 0.8)
-        
-        # Epistemic Uncertainty: Model ignorance (e.g., out-of-distribution sample)
-        # Usually inversely proportional to confidence in this mock
-        epistemic_raw = random.uniform(0.01, 1 - base_confidence)
-        epistemic_uncertainty = epistemic_raw * (1.0 if not require_calibration else 0.5)
-        
+            
+        # For Step 1, these are placeholders. Real Variance will be added in Step 2 (MC Dropout)
+        aleatoric_uncertainty = 0.15 
+        epistemic_uncertainty = 0.10 
         total_uncertainty = (aleatoric_uncertainty + epistemic_uncertainty) / 2.0
         
-        # Tumor Probability Map (Simulated as an overall percentage + heatmap data points)
-        tumor_detected = base_confidence > 0.75
-        prob_score = random.uniform(0.8, 0.99) if tumor_detected else random.uniform(0.05, 0.3)
-        
-        # Mocking bounding boxes if tumor detected
+        # Generate Bounding Boxes
         bounding_boxes = []
+        heatmap_points = []
         if tumor_detected:
-            num_lesions = random.randint(1, 3)
-            for _ in range(num_lesions):
-                # Format: [x, y, width, height, confidence] relative to image (0-1)
-                bx = random.uniform(0.2, 0.7)
-                by = random.uniform(0.2, 0.7)
-                bw = random.uniform(0.1, 0.3)
-                bh = random.uniform(0.1, 0.3)
-                bounding_boxes.append([bx, by, bw, bh, random.uniform(0.8, base_confidence)])
-                
-        # Generate heatmap points simulating the probability density
-        heatmap_points = self._generate_heatmap_points(bounding_boxes)
-                
+            mask = (prob_map > 0.5).astype(np.uint8)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                bx, by, bw, bh = x / 256.0, y / 256.0, w / 256.0, h / 256.0
+                if bw > 0.02 and bh > 0.02:
+                    bounding_boxes.append([bx, by, bw, bh, base_confidence])
+            
+            # Generate Real Heatmap Points by downsampling the true probability map
+            heatmap_resized = cv2.resize(prob_map, (32, 32))
+            for y in range(32):
+                for x in range(32):
+                    val = float(heatmap_resized[y, x])
+                    if val > 0.2: 
+                        heatmap_points.append({"x": x / 32.0, "y": y / 32.0, "value": val})
+                        
+        inference_time_ms = int((time.time() - start_time) * 1000)
+
         return {
             "prediction": {
                 "has_tumor": tumor_detected,
@@ -74,27 +110,9 @@ class InferenceModelMock:
             },
             "metadata": {
                 "model_used": self.model_name,
-                "inference_time_ms": random.randint(150, 450),  # Simulated Edge inference speed
+                "inference_time_ms": inference_time_ms,
                 "calibrated": require_calibration
             }
         }
-        
-    def _generate_heatmap_points(self, bounding_boxes: List[List[float]]) -> List[Dict[str, float]]:
-        """Generates random clusters of points representing high activation regions."""
-        points = []
-        for box in bounding_boxes:
-            x, y, w, h, conf = box
-            center_x = x + w/2
-            center_y = y + h/2
-            
-            # Generate 50 points around this center
-            for _ in range(50):
-                px = random.gauss(center_x, w/3)
-                py = random.gauss(center_y, h/3)
-                intensity = max(0.1, random.gauss(conf, 0.2))
-                if 0 <= px <= 1 and 0 <= py <= 1:
-                    points.append({"x": px, "y": py, "value": intensity})
-                    
-        return points
 
-inference_model = InferenceModelMock()
+inference_model = InferenceModelONNX()
