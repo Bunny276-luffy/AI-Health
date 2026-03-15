@@ -1,56 +1,68 @@
-===============================================================
+========================================================================
 NeuroScan: Uncertainty-Aware AI Tumor Detection System
-===============================================================
-Date: March 12, 2026
+Comprehensive Project History and Implementation Details
+========================================================================
 
-1. PROJECT OVERVIEW
--------------------
-We successfully built a full-stack, cross-platform web application for advanced AI medical imaging. The system allows clinicians to upload scans (CT, MRI, Ultrasound), runs a simulated edge-optimized deep learning inference pipeline, and visualizes uncertainties alongside standard tumor classification.
+1. INITIAL PROJECT SCOPE & SETUP
+--------------------------------
+Goal: Build a full-stack, cross-platform web application for advanced AI medical imaging, capable of:
+- Tumor detection via uploaded scans (MCI, CT, Ultrasound).
+- Calculating Epistemic (model ignorance) and Aleatoric (data noise) uncertainties.
+- Longitudinal progression analysis (comparing baseline vs. current scans).
+- Generating PDF diagnostic reports.
 
-2. TECHNOLOGY STACK
--------------------
-- Frontend: Next.js 14, React, Tailwind CSS, TypeScript
-- Backend: Python, FastAPI, Uvicorn, OpenCV, ReportLab
-- Real-time communication: Axios (Frontend) -> FastAPI REST endpoints
+Architecture:
+- Frontend: Next.js 14, React, Tailwind CSS (Dark Medical Theme)
+- Backend: Python FastAPI, OpenCV, Uvicorn
 
-3. FEATURES IMPLEMENTED & COMPLETED
------------------------------------
-[x] Project Setup & Architecture
-    - Separate backend and frontend directories established.
-    - CORS configured for cross-origin communication between Next.js and FastAPI.
+2. PHASE 1: THE MOCK IMPLEMENTATION (Foundation)
+------------------------------------------------
+To establish the complex frontend/backend data flow, we first built the system using a "Mock" inference pipeline.
+- Backend routing established for `/analyze`, `/progression`, and `/report`.
+- Frontend Upload Panel created supporting drag-and-drop.
+- Frontend Visualization Panel built using HTML Canvas to display uploaded scans, overlay heatmap dots, and draw tumor bounding boxes based on the mock backend JSON response.
+- Uncertainty Panels built to dynamically render confidence vs. uncertainty metrics using progress bars.
+- ReportLab integrated into the backend to dynamically generate a PDF report containing the mock JSON inference results and stream it back to the frontend for download.
+- Fixed React Hydration errors caused by browser extensions injecting code into the HTML document.
+- Fixed nested `.git` folder issues preventing the `frontend` folder from tracking correctly on GitHub.
 
-[x] Backend (FastAPI Python Application)
-    - Image Preprocessing Mock: Setup to accept file uploads (Images/DICOM).
-    - AI Inference Simulation: Mock PyTorch model that generates:
-        - Tumor Probability (%)
-        - Confidence Score (%)
-        - Bounding Boxes coordinates.
-        - Heatmap data points.
-    - Uncertainty Estimation: Generates Aleatoric (data noise) and Epistemic (model ignorance) metrics.
-    - Longitudinal Progression Analysis: Logic to compare "Baseline" vs "Current" scans to track tumor growth.
-    - Self-Calibrating Control Loop: Built logic that triggers re-analysis automatically if high uncertainty is detected.
-    - PDF Report Generation: A `reportlab` service mapping inference JSON into a professional downloadable Medical Report PDF.
+3. PHASE 2: REAL DEEP LEARNING INTEGRATION (Current Step)
+---------------------------------------------------------
+Following the successful mock build, we transitioned to a real mathematical deep learning pipeline.
 
-[x] Frontend (Next.js Application)
-    - Responsive dark-mode medical UI layout (`layout.tsx`, `globals.css`).
-    - Sidebar navigation component.
-    - Interactive Drag & Drop "Image Upload Panel" supporting Single Scan and Progression (dual scan) modes.
-    - Diagnostic Visualization Viewer: Displays the scan with toggleable Heatmap rendering and standard Bounding Boxes.
-    - Uncertainty Dashboard: Renders dynamic progress bars tracking Aleatoric/Epistemic confidence metrics. Includes automatic Clinical Warnings on low confidence.
-    - Diagnostic Summary Panel: Textual breakdown of the inference results.
-    - PDF Download functionality: The frontend dynamically posts results to the backend `/report` endpoint and handles the file streaming to trigger a browser download.
+Step 1: Deep Learning Integration (COMPLETED)
+- Analyzed PyTorch Hub to find an appropriate medical model: Mateusz Buda's Brain Segmentation PyTorch U-Net.
+- Wrote robust downloader scripts (`robust_downloader.py`, `export_unet_local.py`) to bypass PyTorch Hub network timeouts by cloning the repository locally.
+- Exported the PyTorch U-Net computational graph into `unet.onnx` so it can be run via ONNXRuntime, a highly optimized CPU/Edge inference engine.
+- Rewrote `backend/models/inference.py`:
+    - Reads binary image data into OpenCV.
+    - Mathematically standardizes the image using ImageNet means `[0.485, 0.456, 0.406]` and scales to `256x256`.
+    - Feeds the `[1, 3, 256, 256]` tensor into the ONNX session.
+    - Applies a Sigmoid activation to the logit output to get the real probability map.
+    - Generates authentic bounding boxes and heatmap coordinates by clustering the high-activation (`> 0.5`) regions from the U-Net probability map.
 
-[x] Bug Fixes & Refinements
-    - Fixed hydration mismatch errors caused by browser extensions injecting code into the HTML `<body>` by aggressively applying `suppressHydrationWarning`.
-    - Fixed React-Hot-Toast strict TypeScript prop checking.
-    - Cleaned up Next.js auto-generated nested `.git` repository and pushed correctly to GitHub.
+4. NEXT STEPS REMAINING (The 5-Step Plan)
+-----------------------------------------
+Step 2: Real Uncertainty Implementation (MC Dropout)
+- We will replace the static uncertainty variables with Monte Carlo (MC) Dropout.
+- The ONNX model will execute 10 times per image.
+- We will calculate the inter-prediction mathematical variance to generate authentic Epistemic and Aleatoric Uncertainty metric values.
 
-4. NEXT STEPS (Future Enhancements)
------------------------------------
-- Integration of actual pre-trained Deep Learning weights (ResNet, U-Net) instead of mock deterministic outputs.
-- Database connection (PostgreSQL/MongoDB) to save Patient Histories.
-- Genuine DICOM image unspooling using Python `pydicom`.
+Step 3: Self-Calibrating Logic
+- Integration of `SimpleITK`.
+- If Epistemic Uncertainty exceeds `0.3`, we will execute image registration algorithms to stabilize the prediction automatically.
 
-===============================================================
-End of Summary
-===============================================================
+Step 4: DICOM & Metadata
+- Integration of `pydicom` to read `.dcm` files natively.
+- Extract "Patient Age", "Modality", and "Slice Thickness" dynamically.
+- Embed this new clinical metadata into the PDF generated by ReportLab.
+
+Step 5: Frontend Vibe-Coding
+- Visualizing the authentic MC Dropout uncertainty maps as a toggleable overlay.
+- Display conditional UI "Clinical Warnings" only when the true computed Epistemic metric passes the 0.3 threshold.
+
+========================================================================
+Deployment Status: 
+- Frontend is configured with dynamic environment variables (`NEXT_PUBLIC_API_URL`) and `vercel.json` for serverless deployment on Vercel.
+- Backend is restricted to containerized environments (Docker, Render, Railway) due to the large memory requirements of ONNXRuntime and the U-Net weights file.
+========================================================================
