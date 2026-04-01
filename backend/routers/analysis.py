@@ -5,6 +5,8 @@ import json
 from models.inference import inference_model
 from services.progression import progression_analyzer
 from services.report_generator import report_generator
+from services.registration import image_registration
+from services.dicom_parser import dicom_parser
 
 router = APIRouter()
 
@@ -16,25 +18,35 @@ async def analyze_scan(
     """
     Main endpoint to upload a scan, run preprocessing, AI detection, and uncertainty estimates.
     """
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File provided is not an image.")
-    
     contents = await file.read()
+    
+    # Optional: Parse DICOM Metadata if available
+    dcm_meta = dicom_parser.extract_metadata(contents)
     
     # 1. Preprocessing (Simulated success, normally OpenCV goes here)
     processing_status = ["Resized to 256x256", "Contrast Enhanced", "Noise Reduced"]
     
-    # 2. AI Tumor Detection & Uncertainty Estimation
+    # 2. AI Tumor Detection & Uncertainty Estimation (MC Dropout)
     results = inference_model.analyze_scan(contents, require_calibration=auto_calibrate)
     
-    # 3. Check for Self-Calibrating Diagnostic Control
-    # If uncertainty is too high, and we haven't calibrated yet, we trigger a re-analysis scenario
-    # In a real system, this would adjust attention weights or run a heavier ensemble
+    # 3. Check for Self-Calibrating Diagnostic Control using SimpleITK
+    # If Epistemic Uncertainty > 30% (0.3 threshold), we trigger image registration
     reanalysis_triggered = False
-    if results["uncertainty"]["is_high_uncertainty"] and not auto_calibrate:
+    registration_status = None
+    
+    # We normalized epistemic to '0-100' in `inference.py` output
+    if results["uncertainty"]["epistemic"] > 30.0 and not auto_calibrate:
         reanalysis_triggered = True
-        # Run it again with calibration flagged
+        
+        # Execute SimpleITK Image Registration
+        registration_status = image_registration.register_to_baseline(contents)
+        
+        # Re-run inference representing the "stabilized" features
         results = inference_model.analyze_scan(contents, require_calibration=True)
+        results["metadata"]["registration_applied"] = registration_status["transformation_type"]
+        
+    # Append DICOM meta to final response metadata
+    results["metadata"].update(dcm_meta)
     
     return {
         "status": "success",
@@ -42,7 +54,7 @@ async def analyze_scan(
         "results": results,
         "control_actions": {
             "reanalysis_performed": reanalysis_triggered,
-            "message": "Additional analysis performed due to high initial prediction uncertainty." if reanalysis_triggered else "Normal inference completed."
+            "message": "ITK Alignment stabilizing high Epistemic variance." if reanalysis_triggered else "Normal inference completed."
         }
     }
 

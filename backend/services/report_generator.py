@@ -63,7 +63,17 @@ class ReportGenerator:
         c.setFont("Helvetica", 12)
         c.drawString(70, height - 360, f"Inference Engine: {meta.get('model_used', 'N/A')}")
         c.drawString(70, height - 380, f"Processing Time: {meta.get('inference_time_ms', 0)} ms (Edge Optimized)")
-        c.drawString(70, height - 400, f"Self-Calibration Triggered: {'Yes' if meta.get('calibrated') else 'No'}")
+        
+        # New DICOM Information
+        c.drawString(70, height - 400, f"Patient Age: {meta.get('patient_age', 'Unknown')}")
+        c.drawString(70, height - 420, f"Modality: {meta.get('modality', 'Unknown')}")
+        c.drawString(70, height - 440, f"Slice Thickness: {meta.get('slice_thickness', 'Unknown')}")
+        
+        calibrated_str = "Yes" if meta.get('calibrated') else "No"
+        if meta.get("registration_applied"):
+            calibrated_str += f" ({meta.get('registration_applied')})"
+            
+        c.drawString(70, height - 460, f"Self-Calibration Triggered: {calibrated_str}")
         
         # Footer
         c.setFont("Helvetica-Oblique", 9)

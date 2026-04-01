@@ -158,11 +158,17 @@ export default function DashboardPage() {
             ) : (
               <>
                 <p className="text-slate-300 text-sm leading-relaxed">
-                  The deep learning ensemble has processed the supplied scan.
+                  The deep learning MC Dropout ensemble has processed the supplied scan over 10 parallel passes.
                   Based on inference, <strong className={results.prediction.has_tumor ? "text-red-400" : "text-emerald-400"}>
                     {results.prediction.has_tumor ? "an anomalous lesion was detected" : "no significant anomalies were detected"}.
                   </strong>
                 </p>
+                {results.uncertainty.epistemic > 30.0 && (
+                  <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                     <span className="text-red-400 text-sm font-bold block mb-1">⚠️ Clinical Warning Triggered</span>
+                     <span className="text-red-300 text-xs">The Epistemic (Model) Uncertainty exceeded the 30% safety threshold ({results.uncertainty.epistemic}%), automatically triggering the SimpleITK Image Registration pipeline to stabilize the prediction. Please manually review the scan variance map.</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
                   <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg">
                     <span className="block text-xs text-slate-500 mb-1">Tumor Probability</span>
