@@ -1,0 +1,72 @@
+================================================================================
+NeuroScan: Uncertainty-Aware AI Tumor Detection System
+Final Comprehensive Project Architecture & Feature Summary
+================================================================================
+
+1. EXECUTIVE SUMMARY
+--------------------
+NeuroScan is a robust, full-stack, cross-platform web application designed for advanced AI medical imaging. The system goes beyond standard deep learning detection by quantifying its own "uncertainty" in its predictions via Monte Carlo Dropout, ensuring clinical reliability. It features a modern edge-optimized Frontend Dashboard and a highly scalable mathematical PyTorch backend.
+
+2. TECHNOLOGY STACK
+-------------------
+Frontend (Client Layer)
+- Core: Next.js 14, React.js (TypeScript)
+- Styling: Tailwind CSS (Custom Dark Medical Theme, Glassmorphism)
+- Data Visualization: HTML5 Canvas, Lucide React Icons
+- Deployment Readiness: Fully dynamic environment mapping (`vercel.json`, `NEXT_PUBLIC_API_URL`)
+
+Backend (Data & AI Layer)
+- API Core: Python, FastAPI, Uvicorn (REST protocols, CORS config)
+- Edge Inference Engine: ONNXRuntime
+- Deep Learning Architecture: PyTorch (U-Net for Brain Segmentations)
+- Medical Image Processing: OpenCV, SimpleITK, `pydicom`
+- Diagnostic Report Generation: ReportLab (PDF Synthesis)
+
+3. SYSTEM FEATURES & PIPELINE LAYERS
+------------------------------------
+Layer A: The Dashboard UI & Vibe-Coding (Frontend)
+- Drag-and-Drop Image Upload Panel supporting standard JPGs, PNGs, and clinical `.dcm` files.
+- Real-time Visualization Dashboard that overlays high-activation AI "Heatmap" grids and draws exact tumor bounding boxes securely extracted directly from the mathematical response map.
+- Distinct metrics tracking "Tumor Probability" alongside "System Confidence".
+- Reactive Clinical Alarms that conditionally render if mathematical risk metrics exceed strict boundaries.
+
+Layer B: The Image Preprocessing Engine (Backend)
+- Binary arrays are structurally ingested via API `MultipartForm`. 
+- OpenCV handles standardized normalization against the exact ImageNet distributions (`mean=[0.485, 0.456, 0.406]`) required for inference.
+
+Layer C: The Uncertainty-Aware Neural Core (Backend Models)
+- Edge ONNX Execution: The MateuszBuda PyTorch U-Net architecture was successfully pulled from GitHub via local mirror-downloading utilities and compressed into a static `.onnx` inference graph. 
+- Monte Carlo (MC) Dropout: To generate authentic mathematical variance, the system performs an Ensemble Inference. For every scan uploaded, the model executes 10 parallel prediction passes using random Gaussian activation-dropout masks and Test-Time Augmentation (Input Noise).
+- The Variance Map generates exact representations of "Epistemic Uncertainty" (Model Igornance) and "Aleatoric Uncertainty" (Data Noise).
+
+Layer D: Self-Calibrating Diagnostic Loop (Backend Services)
+- Utilizing `SimpleITK`, the backend evaluates the calculated PyTorch Epistemic Uncertainty.
+- If variance exceeds safety margins ( > 30% ), the FastAPI route blocks the immediate frontend response and executes an internal `Elastic/Affine Registration` matrix to stabilize the image features prior to forcing a secondary pass.
+
+Layer E: Dynamic Medical Metadata Extractor (Backend Services)
+- `pydicom` actively intercepts `image/dicom` files.
+- Automatically extracts real clinical tags, notably: Patient Age, Modality, and Scan Slice Thickness.
+
+Layer F: Secure PDF Export (Backend Services)
+- Diagnostic summary dynamically streams into a robust Python `ReportLab` module.
+- Compiles the AI's Tumor Probability, Extracted DICOM Metadata, Total Variance, and Calibration States into a downloadable "NeuroScan Diagnostic Report" file served instantly to the clinician.
+
+Layer G: Custom Deep Learning Pipeline (Backend Scripts)
+- A self-contained fine-tuning environment allowing the system to learn from new proprietary datasets.
+- Includes a sophisticated PyTorch `MedicalSegmentationDataset` DataLoader and Data Augmentation protocol.
+- Executes an `Adam`-optimized Backpropagation Loop minimizing a custom `DiceBCELoss` (optimized for extreme class imbalance in sparse tumor segments).
+- Automatically overwrites and re-compresses the updated weights back into `unet.onnx` so the production engine immediately tracks the new logic.
+
+4. DEVELOPMENT TIMELINE
+-----------------------
+- Phase 1: Constructed Frontend UX and Backend architecture utilizing Mocked data streams to stabilize integrations.
+- Phase 2: Integrated Real PyTorch U-Net and edge optimized ONNX processing loop.
+- Phase 3: Engineered authentic Monte Carlo Dropout 10-pass Ensemble mathematics.
+- Phase 4: Wrote the Self-Calibrating `SimpleITK` Registration interceptor and `pydicom` data parsers.
+- Phase 5: Hooked real Epistemic > 0.3 logic directly into Next.js React overlays.
+- Phase 6: Delivered local Custom Training Pipeline routines with automatic PyTorch->ONNX integration for seamless proprietary upgrading.
+
+================================================================================
+Deployment Architecture:
+- Next.js application verified for serverless execution natively resolving upon Vercel.
+- The Python API codebase is structured and heavily pip-managed for containerized (Render/Railway/Fly.io) environments supporting standalone Edge Compute processing units.
