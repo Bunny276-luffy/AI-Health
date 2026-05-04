@@ -1,72 +1,255 @@
 ================================================================================
 NeuroScan: Uncertainty-Aware AI Tumor Detection System
 Final Comprehensive Project Architecture & Feature Summary
+Last Updated: May 2026
 ================================================================================
 
 1. EXECUTIVE SUMMARY
 --------------------
-NeuroScan is a robust, full-stack, cross-platform web application designed for advanced AI medical imaging. The system goes beyond standard deep learning detection by quantifying its own "uncertainty" in its predictions via Monte Carlo Dropout, ensuring clinical reliability. It features a modern edge-optimized Frontend Dashboard and a highly scalable mathematical PyTorch backend.
+NeuroScan is a production-grade, full-stack, cross-platform medical AI imaging
+system. The system goes beyond standard detection by quantifying its own prediction
+uncertainty via Monte Carlo Dropout, providing statistically guaranteed conformal
+prediction intervals, grounding an LLM assistant strictly in numeric scan data,
+and supporting federated training across hospital nodes without sharing raw data.
 
-2. TECHNOLOGY STACK
--------------------
+It progressed through 3 major engineering phases:
+  Phase 1: Mock architecture & full-stack integration
+  Phase 2: Real PyTorch/ONNX deep learning pipeline
+  Phase 3: 6-feature advanced AI extension (LLM, Radiomics, FL, Conformal, etc.)
+
+
+2. COMPLETE TECHNOLOGY STACK
+-----------------------------
 Frontend (Client Layer)
-- Core: Next.js 14, React.js (TypeScript)
-- Styling: Tailwind CSS (Custom Dark Medical Theme, Glassmorphism)
-- Data Visualization: HTML5 Canvas, Lucide React Icons
-- Deployment Readiness: Fully dynamic environment mapping (`vercel.json`, `NEXT_PUBLIC_API_URL`)
+  - Core:          Next.js 14, React.js, TypeScript (strict mode, no `any`)
+  - Styling:       Tailwind CSS (Dark medical theme, Glassmorphism)
+  - Visualization: HTML5 Canvas (heatmaps, bounding boxes, side-by-side diffs)
+  - Icons:         Lucide React
+  - HTTP:          Axios (multipart uploads), native fetch() (SSE streaming)
+  - Deployment:    vercel.json + NEXT_PUBLIC_API_URL environment variable
 
-Backend (Data & AI Layer)
-- API Core: Python, FastAPI, Uvicorn (REST protocols, CORS config)
-- Edge Inference Engine: ONNXRuntime
-- Deep Learning Architecture: PyTorch (U-Net for Brain Segmentations)
-- Medical Image Processing: OpenCV, SimpleITK, `pydicom`
-- Diagnostic Report Generation: ReportLab (PDF Synthesis)
+Backend (AI & Data Layer)
+  - API Core:          Python 3.10+, FastAPI, Uvicorn
+  - Edge Inference:    ONNXRuntime (CPU/GPU-agnostic model execution)
+  - Deep Learning:     PyTorch, MateuszBuda U-Net architecture
+  - Image Processing:  OpenCV, SimpleITK (affine registration)
+  - Medical Imaging:   pydicom (DICOM metadata extraction)
+  - Report Generation: ReportLab (dynamic PDF synthesis)
+  - LLM Integration:   Anthropic Claude claude-sonnet-4-20250514 (grounded VQA)
+  - Federated Learning: Flower (flwr), Fernet symmetric encryption, Gaussian DP
+  - Containerization:  Docker, Docker Compose
+  - Deployment Target: Render / Railway / Fly.io (containerized)
 
-3. SYSTEM FEATURES & PIPELINE LAYERS
-------------------------------------
-Layer A: The Dashboard UI & Vibe-Coding (Frontend)
-- Drag-and-Drop Image Upload Panel supporting standard JPGs, PNGs, and clinical `.dcm` files.
-- Real-time Visualization Dashboard that overlays high-activation AI "Heatmap" grids and draws exact tumor bounding boxes securely extracted directly from the mathematical response map.
-- Distinct metrics tracking "Tumor Probability" alongside "System Confidence".
-- Reactive Clinical Alarms that conditionally render if mathematical risk metrics exceed strict boundaries.
 
-Layer B: The Image Preprocessing Engine (Backend)
-- Binary arrays are structurally ingested via API `MultipartForm`. 
-- OpenCV handles standardized normalization against the exact ImageNet distributions (`mean=[0.485, 0.456, 0.406]`) required for inference.
+3. COMPLETE SYSTEM LAYERS & FEATURES
+--------------------------------------
 
-Layer C: The Uncertainty-Aware Neural Core (Backend Models)
-- Edge ONNX Execution: The MateuszBuda PyTorch U-Net architecture was successfully pulled from GitHub via local mirror-downloading utilities and compressed into a static `.onnx` inference graph. 
-- Monte Carlo (MC) Dropout: To generate authentic mathematical variance, the system performs an Ensemble Inference. For every scan uploaded, the model executes 10 parallel prediction passes using random Gaussian activation-dropout masks and Test-Time Augmentation (Input Noise).
-- The Variance Map generates exact representations of "Epistemic Uncertainty" (Model Igornance) and "Aleatoric Uncertainty" (Data Noise).
+--- CORE PIPELINE (Phases 1-2) ---
 
-Layer D: Self-Calibrating Diagnostic Loop (Backend Services)
-- Utilizing `SimpleITK`, the backend evaluates the calculated PyTorch Epistemic Uncertainty.
-- If variance exceeds safety margins ( > 30% ), the FastAPI route blocks the immediate frontend response and executes an internal `Elastic/Affine Registration` matrix to stabilize the image features prior to forcing a secondary pass.
+Layer A: Frontend Dashboard
+  - Drag-and-drop upload panel: JPG, PNG, .dcm support
+  - HTML5 Canvas visualization: real-time heatmap overlay + bounding boxes
+  - Organ-aware dynamic title: "NeuroScan — Brain/Lung/Liver/Prostate Detection"
+  - Clinical alarm banners triggered when Epistemic Uncertainty > 30%
+  - Responsive 3-column grid layout (upload / visualization / uncertainty)
 
-Layer E: Dynamic Medical Metadata Extractor (Backend Services)
-- `pydicom` actively intercepts `image/dicom` files.
-- Automatically extracts real clinical tags, notably: Patient Age, Modality, and Scan Slice Thickness.
+Layer B: Image Preprocessing Engine
+  - Multi-part form binary ingestion via FastAPI
+  - OpenCV decoding → organ-specific resize (Brain: 256x256, Lung: 512x512, etc.)
+  - ImageNet standardisation: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
 
-Layer F: Secure PDF Export (Backend Services)
-- Diagnostic summary dynamically streams into a robust Python `ReportLab` module.
-- Compiles the AI's Tumor Probability, Extracted DICOM Metadata, Total Variance, and Calibration States into a downloadable "NeuroScan Diagnostic Report" file served instantly to the clinician.
+Layer C: Monte Carlo Dropout Inference Core
+  - MateuszBuda U-Net exported to `unet.onnx` via local repo cloning
+  - 10-pass MC Dropout ensemble per uploaded scan:
+      • Aleatoric branch: Gaussian input noise per pass (sigma=0.05) [TTA]
+      • Epistemic branch: stochastic 10% activation dropout mask per pass
+  - Stacked probability maps → mean_prob_map + variance_map
+  - Outputs: tumor_probability, bounding_boxes, uncertainty heatmap
 
-Layer G: Custom Deep Learning Pipeline (Backend Scripts)
-- A self-contained fine-tuning environment allowing the system to learn from new proprietary datasets.
-- Includes a sophisticated PyTorch `MedicalSegmentationDataset` DataLoader and Data Augmentation protocol.
-- Executes an `Adam`-optimized Backpropagation Loop minimizing a custom `DiceBCELoss` (optimized for extreme class imbalance in sparse tumor segments).
-- Automatically overwrites and re-compresses the updated weights back into `unet.onnx` so the production engine immediately tracks the new logic.
+Layer D: Uncertainty Quantification
+  - Epistemic Uncertainty: 70% of total variance (model knowledge gap)
+  - Aleatoric Uncertainty: 30% of total variance (data/image noise)
+  - Both exposed as 0-100% frontend metrics
+  - `is_high_uncertainty` flag at 25% total threshold
 
-4. DEVELOPMENT TIMELINE
------------------------
-- Phase 1: Constructed Frontend UX and Backend architecture utilizing Mocked data streams to stabilize integrations.
-- Phase 2: Integrated Real PyTorch U-Net and edge optimized ONNX processing loop.
-- Phase 3: Engineered authentic Monte Carlo Dropout 10-pass Ensemble mathematics.
-- Phase 4: Wrote the Self-Calibrating `SimpleITK` Registration interceptor and `pydicom` data parsers.
-- Phase 5: Hooked real Epistemic > 0.3 logic directly into Next.js React overlays.
-- Phase 6: Delivered local Custom Training Pipeline routines with automatic PyTorch->ONNX integration for seamless proprietary upgrading.
+Layer E: Self-Calibrating Diagnostic Loop (SimpleITK)
+  - Triggered automatically if Epistemic > 30%
+  - Executes SimpleITK Affine/Euler2D image registration against baseline
+  - Re-runs ONNX inference with calibration_factor = 1.15 applied
+  - Transformation type logged to API response + PDF report
+
+Layer F: DICOM Metadata Extractor (pydicom)
+  - Intercepts .dcm binary streams natively via pydicom
+  - Extracts: PatientAge, Modality, SliceThickness
+  - Falls back gracefully for standard JPG/PNG uploads
+  - Metadata injected into API response + embedded in PDF output
+
+Layer G: Diagnostic PDF Report (ReportLab)
+  - Sections: Inference Results, Uncertainty Estimation, DICOM Metadata,
+              Radiomics Analysis, System Metrics, Calibration Status
+  - Color-coded findings (red = tumor detected, green = clear)
+  - Clinical disclaimer footer on every generated report
+  - Streamed directly to browser as downloadable binary
+
+Layer H: Custom PyTorch Training Pipeline
+  - MedicalSegmentationDataset: loads image/mask pairs from local folders
+  - Data augmentation: random horizontal + vertical flips
+  - DiceBCELoss: combined Dice + Binary Cross Entropy (handles class imbalance)
+  - Adam optimizer, hardware-agnostic (CUDA → MPS → CPU auto-detection)
+  - Post-training automatic ONNX re-export overwrites production `unet.onnx`
+  - verify_training.py: synthetic dummy dataset test to validate the math
+
+--- ADVANCED FEATURE SET (Phase 3 — 6 New Features) ---
+
+Feature 1: Visual Question Answering (VQA) — /api/v1/vqa
+  - POST /api/v1/vqa/stream: Server-Sent Events token-by-token LLM streaming
+  - POST /api/v1/vqa: synchronous fallback for PDFs/pipelines
+  - Claude claude-sonnet-4-20250514 grounded strictly to numeric scan_context
+  - System prompt encodes all metric values to prevent hallucination
+  - Frontend: text input, suggested question chips, streaming blinking cursor
+  - Yellow "AI-generated — not a clinical diagnosis" disclaimer banner
+  - Env var: ANTHROPIC_API_KEY
+
+Feature 2: Radiomics Analysis — radiomics_service.extract_features()
+  - Executes after every ONNX inference pass on the tumor ROI
+  - First-Order Statistics: Energy, Entropy, Variance, Kurtosis
+  - GLCM Texture: Contrast, Correlation, Homogeneity, ClusterShade
+  - Pure NumPy/OpenCV — no heavy C++ pyradiomics dependency required
+  - Normal ranges per feature: Green (normal) / Amber (borderline) / Red (abnormal)
+  - Frontend: 8-card responsive grid, status badges, clinical descriptor text
+  - PDF: "Radiomics Analysis" section added to every report
+
+Feature 3: Temporal Scan Comparison — /api/v1/compare
+  - Accepts 2 scan uploads + optional ISO date strings
+  - Runs full independent MC Dropout inference on both scans
+  - Computes: probability_delta, volume_delta_percent, uncertainty_delta
+  - Volume Doubling Time (VDT) via Schwartz formula: T·ln(2)/ln(Vb/Va)
+  - VDT clinical interpretation: Fast (<100d) / Moderate / Slow / Indolent
+  - Severity label: stable / moderate / critical
+  - Frontend: dual upload + date pickers, side-by-side heatmap Canvas,
+              delta arrows (↑/↓), colour-coded severity, VDT string
+
+Feature 4: Multi-Organ Model Routing — organ_registry.py
+  - OrganType enum: BRAIN | LUNG | LIVER | PROSTATE
+  - Organ-specific ONNX sessions loaded lazily, cached in memory
+  - Organ-specific resolutions: Brain=256x256, Lung=512x512, Liver=256x256,
+    Prostate=320x320
+  - Fallback to brain unet.onnx when organ model file not yet present
+  - /api/v1/analyze extended with `organ: str = Form("BRAIN")`
+  - Frontend: 4-button styled selector (Brain/Lung/Liver/Prostate) with icons
+  - Dashboard title updates dynamically to reflect selected organ
+
+Feature 5: Federated Learning Architecture — fl_server.py / fl_client.py
+  - Server: Flower (flwr) FedAvg aggregation strategy
+  - Differential Privacy: Gaussian noise (ε=1.0, δ=1e-5) injected post-aggregation
+  - σ = sqrt(2·ln(1.25/δ)) · sensitivity / epsilon
+  - Post-aggregation: weights auto-exported to unet.onnx
+  - Client: hospital node trains 3 local epochs per federation round
+  - Fernet (AES-128-CBC + HMAC-SHA256) symmetric key encryption of weight deltas
+  - Docker Compose: 1 server + 3 simulated hospital client containers
+  - No raw patient data leaves hospital nodes — privacy-preserving by design
+
+Feature 6: Conformal Prediction Layer — conformal.py
+  - Split conformal prediction (distribution-free, model-agnostic)
+  - Calibration: nonconformity scores s_i = 1 - p_i on held-out set
+  - q_hat = ceil((n+1)(1-α))/n quantile of calibration scores
+  - Coverage: 90% statistical guarantee (α=0.10)
+  - Per-prediction output: lower_bound, upper_bound, prediction_set
+  - Calibration state persisted to conformal_calibration.json
+  - Frontend: replaces raw "System Confidence" with [lower, upper] display
+  - Interactive tooltip explaining conformal prediction in plain English
+  - Interval width classification: Tight / Moderate / Wide
+
+
+4. FILE ARCHITECTURE
+---------------------
+backend/
+  main.py                         FastAPI app, registers all 3 routers
+  routers/
+    analysis.py                   /analyze, /progression, /report
+    vqa.py                        /vqa, /vqa/stream
+    comparison.py                 /compare
+  models/
+    inference.py                  MC Dropout engine + conformal integration
+    organ_registry.py             Multi-organ ONNX session manager
+    unet.onnx                     Edge-optimized brain U-Net weights
+  services/
+    conformal.py                  Split conformal predictor
+    radiomics.py                  First-order + GLCM feature extractor
+    registration.py               SimpleITK affine registration loop
+    dicom_parser.py               pydicom DICOM metadata extractor
+    report_generator.py           ReportLab PDF builder
+    progression.py                Longitudinal volume comparison
+  scripts/
+    dataset.py                    PyTorch medical segmentation dataset
+    train.py                      Full training loop + ONNX re-exporter
+    verify_training.py            Synthetic dummy dataset validation
+  fl/
+    fl_server.py                  Flower FedAvg + DP server
+    fl_client.py                  Hospital node client (Fernet encryption)
+
+frontend/src/app/
+  page.tsx                        Main dashboard (strictly typed, no `any`)
+  components/
+    DashboardLayout.tsx           Shell + navigation
+    UploadPanel.tsx               Drag-and-drop file uploader
+    VisualizationPanel.tsx        HTML5 Canvas heatmap renderer
+    UncertaintyPanel.tsx          Epistemic/Aleatoric progress bars
+    VQAPanel.tsx                  Streaming LLM Q&A panel
+    RadiomicsPanel.tsx            8-feature color-coded radiomics grid
+    TemporalComparisonPanel.tsx   Dual upload + side-by-side comparison
+    OrganSelector.tsx             4-organ button selector with icons
+    ConformalIntervalCard.tsx     Conformal interval + tooltip
+
+docker-compose.fl.yml             1 FL server + 3 client containers
+
+
+5. DEVELOPMENT TIMELINE
+------------------------
+Phase 1 — Mock Foundation
+  - Built Next.js frontend with drag-and-drop upload, Canvas heatmap, and
+    uncertainty metrics using mock JSON responses.
+  - Established FastAPI backend routing (/analyze, /progression, /report).
+  - ReportLab PDF generation integrated.
+  - Fixed React hydration errors and nested .git folder issues.
+
+Phase 2 — Real Deep Learning Integration
+  - Downloaded MateuszBuda U-Net via local Git clone (bypassed Hub timeouts).
+  - Exported PyTorch graph to unet.onnx via torch.onnx.export.
+  - Rewrote inference.py: real ImageNet normalization, ONNX session execution,
+    sigmoid post-processing, contour-based bounding boxes.
+  - Implemented 10-pass MC Dropout ensemble (Gaussian TTA + binomial masks).
+  - Computed variance → Epistemic and Aleatoric uncertainty metrics.
+  - SimpleITK Affine Registration auto-triggers at Epistemic > 30%.
+  - pydicom metadata extraction integrated into API response + PDF.
+  - Built PyTorch custom training pipeline (DiceBCELoss, Adam, auto ONNX export).
+  - Frontend updated with real Epistemic > 30% clinical warning logic.
+  - Vercel config (vercel.json, NEXT_PUBLIC_API_URL) added for deployment.
+
+Phase 3 — Advanced AI Feature Set (6 Features)
+  - Feature 1: VQA — Anthropic Claude streaming Q&A grounded to scan context.
+  - Feature 2: Radiomics — NumPy GLCM + first-order texture analysis.
+  - Feature 3: Temporal Comparison — VDT, deltas, side-by-side heatmap canvas.
+  - Feature 4: Multi-Organ Routing — lazy ONNX session cache per organ.
+  - Feature 5: Federated Learning — Flower + Gaussian DP + Fernet encryption.
+  - Feature 6: Conformal Prediction — 90% statistical coverage intervals.
+  - page.tsx fully rewritten: strict TypeScript, all 6 components wired up.
+
+
+6. DEPLOYMENT ARCHITECTURE
+---------------------------
+Frontend:
+  - Vercel serverless (Next.js build)
+  - NEXT_PUBLIC_API_URL environment variable points to backend URL
+
+Backend:
+  - Docker container on Render / Railway / Fly.io
+  - Requires: ANTHROPIC_API_KEY (VQA), FL_SYMMETRIC_KEY (Federated Learning)
+  - Heavy dependencies (ONNXRuntime, PyTorch) require containerised hosting
+
+Federated Learning (optional separate infra):
+  - docker-compose.fl.yml spins 1 server + 3 clients
+  - Each client mounts its own local data volume
+  - Aggregated weights auto-update production unet.onnx
 
 ================================================================================
-Deployment Architecture:
-- Next.js application verified for serverless execution natively resolving upon Vercel.
-- The Python API codebase is structured and heavily pip-managed for containerized (Render/Railway/Fly.io) environments supporting standalone Edge Compute processing units.

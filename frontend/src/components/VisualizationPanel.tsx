@@ -1,128 +1,155 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Maximize2, Layers } from 'lucide-react';
-import clsx from 'clsx';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Eye, Focus } from 'lucide-react';
 
-interface VizProps {
-    originalImageSrc: string | null;
-    heatmapData: { x: number; y: number; value: number }[];
-    boundingBoxes: number[][]; // [x, y, w, h, conf]
-    isProcessing: boolean;
+interface HeatmapPoint {
+  x: number;
+  y: number;
+  value: number;
 }
 
-export function VisualizationPanel({ originalImageSrc, heatmapData, boundingBoxes, isProcessing }: VizProps) {
-    const [activeLayer, setActiveLayer] = useState<'heatmap' | 'bbox' | 'both' | 'none'>('both');
+interface VisualizationPanelProps {
+  originalImageSrc: string | null;
+  heatmapData: HeatmapPoint[];
+  boundingBoxes: number[][]; // [x, y, w, h, confidence]
+  isProcessing: boolean;
+}
 
-    const renderDots = () => {
-        if (activeLayer === 'none' || activeLayer === 'bbox') return null;
-        return heatmapData.map((pt, i) => (
-            <div
-                key={i}
-                className="tumor-dot"
-                style={{
-                    left: `calc(${pt.x * 100}% - 3px)`,
-                    top: `calc(${pt.y * 100}% - 3px)`,
-                    width: '6px',
-                    height: '6px',
-                    backgroundColor: `hsl(${Math.max(0, 120 - pt.value * 120)}, 100%, 50%)`,
-                    boxShadow: `0 0 8px hsl(${Math.max(0, 120 - pt.value * 120)}, 100%, 50%)`,
-                    animationDelay: `${Math.random() * 2}s`
-                }}
-            />
-        ));
-    };
+export function VisualizationPanel({
+  originalImageSrc,
+  heatmapData,
+  boundingBoxes,
+  isProcessing,
+}: VisualizationPanelProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    const renderBBoxes = () => {
-        if (activeLayer === 'none' || activeLayer === 'heatmap') return null;
-        return boundingBoxes.map((box, i) => {
-            const [x, y, w, h, conf] = box;
-            return (
-                <div
-                    key={`bbox-${i}`}
-                    className="absolute border-2 border-red-500 z-10 pointers-events-none"
-                    style={{
-                        left: `${x * 100}%`,
-                        top: `${y * 100}%`,
-                        width: `${w * 100}%`,
-                        height: `${h * 100}%`,
-                        boxShadow: '0 0 15px rgba(239, 68, 68, 0.5), inset 0 0 15px rgba(239, 68, 68, 0.2)'
-                    }}
-                >
-                    <div className="absolute -top-6 -left-0.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 shadow-md">
-                        Tumor: {Math.round(conf * 100)}%
-                    </div>
-                </div>
-            );
-        });
-    };
+  const drawVisualization = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    return (
-        <div className="panel lg:col-span-2 flex flex-col min-h-[500px]">
-            <div className="panel-header justify-between">
-                <div className="flex items-center gap-2">
-                    <Layers className="text-blue-500" size={20} />
-                    <h3 className="panel-title m-0">Diagnostic Visualization</h3>
-                </div>
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                <div className="flex gap-2 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                    {['both', 'heatmap', 'bbox', 'none'].map(layer => (
-                        <button
-                            key={layer}
-                            onClick={() => setActiveLayer(layer as any)}
-                            className={clsx(
-                                "px-3 py-1 text-xs font-medium rounded-md capitalize transition-colors",
-                                activeLayer === layer ? "bg-slate-800 text-slate-100" : "text-slate-500 hover:text-slate-300"
-                            )}
-                        >
-                            {layer}
-                        </button>
-                    ))}
-                </div>
-            </div>
+    const W = canvas.width;
+    const H = canvas.height;
 
-            <div className="flex-1 bg-black rounded-xl border border-slate-800 relative flex items-center justify-center overflow-hidden group">
-                {!originalImageSrc ? (
-                    <div className="text-slate-600 text-sm font-medium">No scan available for analysis</div>
-                ) : (
-                    <div className="relative inline-block max-w-full max-h-full">
-                        <img
-                            src={originalImageSrc}
-                            alt="Medical Scan"
-                            className={clsx(
-                                "max-w-full max-h-[60vh] object-contain transition-opacity duration-500",
-                                isProcessing && "opacity-30 blur-sm"
-                            )}
-                        />
+    const drawOverlay = () => {
+      // 1. Heatmap
+      if (heatmapData && heatmapData.length > 0) {
+        for (const pt of heatmapData) {
+          const x = pt.x * W;
+          const y = pt.y * H;
+          // Scale radius by value
+          const r = Math.max(10, pt.value * 25);
 
-                        {/* Overlays Container */}
-                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                            {renderDots()}
-                            {renderBBoxes()}
-                        </div>
-
-                        {/* Simulated Edge Processing Scanner */}
-                        {isProcessing && (
-                            <div className="absolute inset-0 z-20 overflow-hidden pointers-events-none">
-                                <div className="w-full h-1 bg-blue-500 shadow-[0_0_20px_#3b82f6] absolute top-0 animate-[scan_2s_linear_infinite_alternate]"></div>
-                            </div>
-                        )}
-
-                        <button className="absolute bottom-4 right-4 bg-slate-900/80 p-2 rounded-lg text-slate-400 hover:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Maximize2 size={18} />
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* Global scan animation logic using arbitrary tailwind isn't supported out of the box so adding standard class via layout or style block */}
-            <style dangerouslySetInnerHTML={{
-                __html: `
-        @keyframes scan {
-          0% { top: 0; }
-          100% { top: 100%; }
+          const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+          grad.addColorStop(0, `rgba(239, 68, 68, ${Math.min(0.8, pt.value)})`); // Red center
+          grad.addColorStop(1, 'rgba(239, 68, 68, 0)'); // Transparent edge
+          
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
         }
-      `}} />
+      }
+
+      // 2. Bounding Boxes
+      if (boundingBoxes && boundingBoxes.length > 0) {
+        ctx.strokeStyle = '#f87171'; // Red
+        ctx.lineWidth = 3;
+        
+        for (const box of boundingBoxes) {
+          const bx = box[0] * W;
+          const by = box[1] * H;
+          const bw = box[2] * W;
+          const bh = box[3] * H;
+          const conf = box[4];
+
+          // Draw Box
+          ctx.strokeRect(bx, by, bw, bh);
+
+          // Draw Label
+          if (conf !== undefined) {
+            ctx.fillStyle = '#f87171';
+            ctx.font = 'bold 12px sans-serif';
+            const text = `${(conf * 100).toFixed(1)}%`;
+            const textWidth = ctx.measureText(text).width;
+            
+            // Background for text
+            ctx.fillRect(bx, by - 20, textWidth + 8, 20);
+            
+            // Text itself
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(text, bx + 4, by - 5);
+          }
+        }
+      }
+    };
+
+    if (originalImageSrc) {
+      const img = new Image();
+      img.src = originalImageSrc;
+      img.onload = () => {
+        // Draw image covering the canvas
+        ctx.drawImage(img, 0, 0, W, H);
+        if (!isProcessing) {
+          drawOverlay();
+        }
+      };
+    } else {
+      // Empty state
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, W, H);
+      
+      ctx.fillStyle = '#334155';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Scan visualization will appear here', W / 2, H / 2);
+    }
+  }, [originalImageSrc, heatmapData, boundingBoxes, isProcessing]);
+
+  useEffect(() => {
+    drawVisualization();
+  }, [drawVisualization]);
+
+  return (
+    <div className="panel lg:col-span-1 flex flex-col">
+      <div className="panel-header">
+        <Eye className="text-blue-400" size={20} />
+        <h3 className="panel-title m-0">Scan Visualization</h3>
+      </div>
+      
+      <div className="flex-1 relative bg-slate-950 rounded-lg overflow-hidden border border-slate-800">
+        <canvas
+          ref={canvasRef}
+          width={512}
+          height={512}
+          className={`w-full h-auto aspect-square object-cover transition-opacity duration-300 ${isProcessing ? 'opacity-50 blur-sm' : 'opacity-100'}`}
+        />
+        
+        {isProcessing && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 bg-slate-900/80 p-4 rounded-xl border border-slate-700 backdrop-blur-md">
+              <Focus className="text-violet-400 animate-spin" size={32} />
+              <span className="text-slate-200 text-sm font-medium">Extracting Features...</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-red-500 opacity-80" />
+          <span>High Uncertainty / Activation</span>
         </div>
-    );
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 border-2 border-red-400 rounded-sm" />
+          <span>Detected Region</span>
+        </div>
+      </div>
+    </div>
+  );
 }

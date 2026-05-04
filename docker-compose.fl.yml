@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  fl_server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python fl/fl_server.py
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - fl_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost', 8080), 2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fl_client_1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python fl/fl_client.py --data_dir /data --server_address fl_server:8080
+    volumes:
+      - ./backend/models:/app/models
+      - ./dummy_data_1:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FL_SYMMETRIC_KEY=${FL_SYMMETRIC_KEY}
+    networks:
+      - fl_network
+    depends_on:
+      fl_server:
+        condition: service_healthy
+
+  fl_client_2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python fl/fl_client.py --data_dir /data --server_address fl_server:8080
+    volumes:
+      - ./backend/models:/app/models
+      - ./dummy_data_2:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FL_SYMMETRIC_KEY=${FL_SYMMETRIC_KEY}
+    networks:
+      - fl_network
+    depends_on:
+      fl_server:
+        condition: service_healthy
+
+  fl_client_3:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python fl/fl_client.py --data_dir /data --server_address fl_server:8080
+    volumes:
+      - ./backend/models:/app/models
+      - ./dummy_data_3:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FL_SYMMETRIC_KEY=${FL_SYMMETRIC_KEY}
+    networks:
+      - fl_network
+    depends_on:
+      fl_server:
+        condition: service_healthy
+
+networks:
+  fl_network:
+    driver: bridge

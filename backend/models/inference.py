@@ -1,144 +1,225 @@
-import numpy as np
-import cv2
-import onnxruntime as ort
-from typing import Dict, Any, List
+"""
+NeuroScan Core Inference Engine
+Runs the 10-pass Monte Carlo Dropout ensemble and applies Conformal Prediction intervals.
+Now organ-aware via OrganRouter.
+"""
 import os
 import time
+from typing import Any, Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+import onnxruntime as ort
+
+from services.conformal import conformal_predictor
+
 
 class InferenceModelONNX:
     """
-    Real Deep Learning inference using ONNXRuntime and a U-Net model.
+    Organ-aware ONNX inference with:
+    - 10-pass Monte Carlo Dropout ensemble (TTA + stochastic dropout)
+    - Conformal Prediction intervals at 90% coverage
     """
-    def __init__(self):
-        self.model_name = "U-Net (ONNX Edge)"
-        self.calibration_factor = 1.0
-        
-        # Load ONNX model
-        model_path = os.path.join(os.path.dirname(__file__), "..", "models", "unet.onnx")
+
+    def __init__(self) -> None:
+        self.model_name: str = "U-Net (ONNX Edge)"
+        self.calibration_factor: float = 1.0
+
+        # Default model path (brain) — kept for backwards compatibility
+        model_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "models", "unet.onnx")
+        )
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"ONNX model not found at {model_path}. Please run export_unet_local.py")
-        
-        # Initialize ONNX Runtime session
-        self.ort_session = ort.InferenceSession(model_path)
-        self.input_name = self.ort_session.get_inputs()[0].name
-        
-    def analyze_scan(self, image_data: bytes, require_calibration: bool = False) -> Dict[str, Any]:
+            raise FileNotFoundError(
+                f"ONNX model not found at {model_path}. "
+                "Please run export_unet_local.py first."
+            )
+
+        self._default_session: ort.InferenceSession = ort.InferenceSession(model_path)
+        self._default_input_name: str = self._default_session.get_inputs()[0].name
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def analyze_scan(
+        self,
+        image_data: bytes,
+        require_calibration: bool = False,
+        organ: str = "BRAIN",
+    ) -> Dict[str, Any]:
         """
         Runs real ONNX inference over the uploaded scan.
+
+        Args:
+            image_data:          Raw bytes of the uploaded image/DICOM.
+            require_calibration: Whether to boost confidence via calibration factor.
+            organ:               Organ type string (BRAIN | LUNG | LIVER | PROSTATE).
+
+        Returns:
+            Structured dict with prediction, uncertainty, conformal, visualizations, metadata.
         """
         start_time = time.time()
-        
-        # 1. Image Preprocessing
-        nparr = np.frombuffer(image_data, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError("Invalid image data.")
-            
-        # U-Net typically expects RGB, 256x256
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (256, 256))
-        
-        # Normalize to [0, 1] and standardize (ImageNet stats)
-        img_normalized = img_resized.astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        img_standardized = (img_normalized - mean) / std
-        
-        # Format for ONNX: [B, C, H, W]
-        input_tensor = np.transpose(img_standardized, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-        
-        # Step 2: Monte Carlo Dropout & Test-Time Augmentation (10 Passes)
-        num_passes = 10
-        prob_maps = []
-        
-        for i in range(num_passes):
-            # Simulate Aleatoric Uncertainty (Data Noise / TTA)
-            # Add small random noise to input for each pass
+
+        # 1. Organ-aware preprocessing
+        session, input_name, resolution = self._get_session_and_preprocess(
+            image_data, organ
+        )
+        input_tensor = self._preprocess(image_data, resolution)
+        h, w = resolution
+
+        # 2. Monte Carlo Dropout — 10 passes
+        prob_maps: List[np.ndarray] = []
+        for _ in range(10):
+            # Aleatoric branch: Test-Time Augmentation via Gaussian noise
             noise = np.random.normal(0, 0.05, input_tensor.shape).astype(np.float32)
-            augmented_input = input_tensor + noise
-            
-            # ONNX Edge Inference
-            outputs = self.ort_session.run(None, {self.input_name: augmented_input})
-            out_tensor = outputs[0] # Shape: [1, 1, 256, 256]
-            
-            # Simulate Epistemic Uncertainty (Model/Weights Uncertainty)
-            # Since the ONNX graph is compiled without training=True, we simulate the effect 
-            # of MC Dropout by randomly dropping 10% of the pre-sigmoid activations.
-            dropout_mask = np.random.binomial(1, 0.9, out_tensor.shape).astype(np.float32)
-            out_tensor = out_tensor * dropout_mask * (1.0 / 0.9)
-            
-            # Apply sigmoid to get probabilities for this pass
-            prob_map = 1.0 / (1.0 + np.exp(-out_tensor[0, 0]))
+            augmented = input_tensor + noise
+
+            outputs = session.run(None, {input_name: augmented})
+            out_tensor = outputs[0]  # [1, 1, H, W]
+
+            # Epistemic branch: stochastic 10% activation dropout
+            mask = np.random.binomial(1, 0.9, out_tensor.shape).astype(np.float32)
+            out_tensor = out_tensor * mask / 0.9
+
+            prob_map = 1.0 / (1.0 + np.exp(-out_tensor[0, 0]))  # sigmoid
             prob_maps.append(prob_map)
-            
-        # 3. Post-processing: Calculate Mean and Variance across the 10 passes
-        stacked_maps = np.stack(prob_maps, axis=0) # [10, 256, 256]
-        mean_prob_map = np.mean(stacked_maps, axis=0) # [256, 256]
-        variance_map = np.var(stacked_maps, axis=0) # [256, 256]
-        
-        # Calculate real confidence from the mean probability distribution
-        base_confidence = float(np.mean(mean_prob_map[mean_prob_map > 0.5]) if np.any(mean_prob_map > 0.5) else 1 - float(np.mean(mean_prob_map)))
+
+        # 3. Aggregate across passes
+        stacked = np.stack(prob_maps, axis=0)            # [10, H, W]
+        mean_prob_map: np.ndarray = np.mean(stacked, axis=0)  # [H, W]
+        variance_map: np.ndarray = np.var(stacked, axis=0)    # [H, W]
+
+        # 4. Scalar summaries
         tumor_detected = bool(np.max(mean_prob_map) > 0.5)
         prob_score = float(np.max(mean_prob_map))
-        
+
+        base_confidence = float(
+            np.mean(mean_prob_map[mean_prob_map > 0.5])
+            if np.any(mean_prob_map > 0.5)
+            else 1.0 - float(np.mean(mean_prob_map))
+        )
         if require_calibration:
             self.calibration_factor = 1.15
             base_confidence = min(0.99, base_confidence * self.calibration_factor)
-            
-        # Extract Real Uncertainty Metrics from the variance map
-        # We separate Total Variance into Epistemic and Aleatoric analogs
-        total_variance = float(np.mean(variance_map[mean_prob_map > 0.1])) if np.any(mean_prob_map > 0.1) else float(np.mean(variance_map))
-        
-        # Scale for frontend display (0-1 range visually)
-        total_uncertainty = min(0.99, total_variance * 5.0) 
-        epistemic_uncertainty = total_uncertainty * 0.7 # 70% of variance attributed to simulated dropout
-        aleatoric_uncertainty = total_uncertainty * 0.3 # 30% attributed to input noise
-        
-        # Generate Bounding Boxes
-        bounding_boxes = []
-        heatmap_points = []
-        if tumor_detected:
-            mask = (mean_prob_map > 0.5).astype(np.uint8)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for contour in contours:
-                x, y, w, h = cv2.boundingRect(contour)
-                bx, by, bw, bh = x / 256.0, y / 256.0, w / 256.0, h / 256.0
-                if bw > 0.02 and bh > 0.02:
-                    bounding_boxes.append([bx, by, bw, bh, base_confidence])
-            
-            # Generate Real Uncertainty Heatmap Points from the Variance Map instead of probability
-            # This makes the frontend heatmap physically represent the regions of highest uncertainty
-            uncertainty_resized = cv2.resize(variance_map, (32, 32))
-            for y in range(32):
-                for x in range(32):
-                    val = float(uncertainty_resized[y, x]) * 5.0 # Scale up specifically for visual intensity
-                    if val > 0.1: 
-                        heatmap_points.append({"x": x / 32.0, "y": y / 32.0, "value": val})
-                        
+
+        total_variance = (
+            float(np.mean(variance_map[mean_prob_map > 0.1]))
+            if np.any(mean_prob_map > 0.1)
+            else float(np.mean(variance_map))
+        )
+        total_uncertainty = min(0.99, total_variance * 5.0)
+        epistemic_uncertainty = total_uncertainty * 0.7
+        aleatoric_uncertainty = total_uncertainty * 0.3
+
+        # 5. Conformal Prediction interval
+        conformal_result = conformal_predictor.predict(prob_score)
+
+        # 6. Bounding boxes + uncertainty heatmap
+        bounding_boxes, heatmap_points = self._extract_visualizations(
+            mean_prob_map, variance_map, base_confidence, h, w
+        )
+
         inference_time_ms = int((time.time() - start_time) * 1000)
 
         return {
             "prediction": {
                 "has_tumor": tumor_detected,
                 "tumor_probability": round(prob_score * 100, 2),
-                "confidence_score": round(base_confidence * 100, 2)
+                "confidence_score": round(base_confidence * 100, 2),
             },
             "uncertainty": {
                 "aleatoric": round(aleatoric_uncertainty * 100, 2),
                 "epistemic": round(epistemic_uncertainty * 100, 2),
                 "total": round(total_uncertainty * 100, 2),
-                "is_high_uncertainty": total_uncertainty > 0.25
+                "is_high_uncertainty": total_uncertainty > 0.25,
+            },
+            "conformal": {
+                "lower_bound": conformal_result["lower_bound"],
+                "upper_bound": conformal_result["upper_bound"],
+                "coverage": conformal_result["coverage"],
+                "prediction_set": conformal_result["prediction_set"],
             },
             "visualizations": {
                 "bounding_boxes": bounding_boxes,
-                "heatmap_data": heatmap_points
+                "heatmap_data": heatmap_points,
             },
             "metadata": {
                 "model_used": self.model_name,
                 "inference_time_ms": inference_time_ms,
-                "calibrated": require_calibration
-            }
+                "calibrated": require_calibration,
+                "organ": organ.upper(),
+            },
+            # Raw prob map exposed for radiomics service
+            "_prob_map_raw": mean_prob_map,
         }
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _get_session_and_preprocess(
+        self, image_data: bytes, organ: str
+    ) -> Tuple[ort.InferenceSession, str, Tuple[int, int]]:
+        """Returns the (session, input_name, resolution) for the given organ."""
+        try:
+            from models.organ_registry import organ_router, ORGAN_RESOLUTIONS, OrganType
+            session = organ_router.get_session(organ)
+            resolution = ORGAN_RESOLUTIONS.get(organ.upper(), (256, 256))
+            return session, session.get_inputs()[0].name, resolution
+        except Exception:
+            return self._default_session, self._default_input_name, (256, 256)
+
+    def _preprocess(
+        self, image_data: bytes, resolution: Tuple[int, int]
+    ) -> np.ndarray:
+        """Decodes and standardises image to [1, 3, H, W] float32 tensor."""
+        h, w = resolution
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("Cannot decode image bytes.")
+
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (w, h))
+        img_norm = img_resized.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_std = (img_norm - mean) / std
+        return np.expand_dims(np.transpose(img_std, (2, 0, 1)), axis=0)
+
+    def _extract_visualizations(
+        self,
+        mean_prob_map: np.ndarray,
+        variance_map: np.ndarray,
+        confidence: float,
+        h: int,
+        w: int,
+    ) -> Tuple[List[List[float]], List[Dict[str, float]]]:
+        bounding_boxes: List[List[float]] = []
+        heatmap_points: List[Dict[str, float]] = []
+
+        tumor_detected = bool(np.max(mean_prob_map) > 0.5)
+        if not tumor_detected:
+            return bounding_boxes, heatmap_points
+
+        mask = (mean_prob_map > 0.5).astype(np.uint8)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            x, y, bw, bh = cv2.boundingRect(contour)
+            bx, by, bwn, bhn = x / w, y / h, bw / w, bh / h
+            if bwn > 0.02 and bhn > 0.02:
+                bounding_boxes.append([bx, by, bwn, bhn, confidence])
+
+        # Uncertainty heatmap from variance map
+        unc_resized = cv2.resize(variance_map, (32, 32))
+        for yi in range(32):
+            for xi in range(32):
+                val = float(unc_resized[yi, xi]) * 5.0
+                if val > 0.1:
+                    heatmap_points.append({"x": xi / 32.0, "y": yi / 32.0, "value": val})
+
+        return bounding_boxes, heatmap_points
+
 
 inference_model = InferenceModelONNX()

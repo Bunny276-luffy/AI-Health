@@ -1,102 +1,77 @@
 'use client';
 
 import React from 'react';
-import { AlertCircle, Target, Activity } from 'lucide-react';
-import clsx from 'clsx';
-// Use dynamic import for recharts in the future, for now simple styled bars
+import { ShieldAlert, Info } from 'lucide-react';
 
-interface MetricProps {
-    label: string;
-    value: number;
-    type: 'success' | 'warning' | 'danger' | 'info';
-    desc?: string;
+interface UncertaintyResult {
+  aleatoric: number;
+  epistemic: number;
+  total: number;
+  is_high_uncertainty: boolean;
 }
 
-const colors = {
-    success: 'bg-emerald-500',
-    warning: 'bg-amber-500',
-    danger: 'bg-red-500',
-    info: 'bg-blue-500',
-};
-
-const textColors = {
-    success: 'text-emerald-400',
-    warning: 'text-amber-400',
-    danger: 'text-red-400',
-    info: 'text-blue-400',
-};
-
-function MetricBar({ label, value, type, desc }: MetricProps) {
-    return (
-        <div className="mb-5 last:mb-0">
-            <div className="flex justify-between items-center mb-1.5">
-                <span className="text-sm font-medium text-slate-300">{label}</span>
-                <span className={clsx("text-lg font-bold", textColors[type])}>{value.toFixed(1)}%</span>
-            </div>
-            <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-800">
-                <div
-                    className={clsx("h-full transition-all duration-1000 ease-out", colors[type])}
-                    style={{ width: `${value}%` }}
-                />
-            </div>
-            {desc && <p className="text-xs text-slate-500 mt-1.5">{desc}</p>}
-        </div>
-    );
+interface UncertaintyPanelProps {
+  results: { uncertainty: UncertaintyResult } | null;
 }
 
-export function UncertaintyPanel({ results }: { results: any }) {
-    if (!results) {
-        return (
-            <div className="panel flex flex-col justify-center items-center h-full min-h-[300px] text-slate-500">
-                <Activity size={32} className="mb-2 opacity-50" />
-                <p className="text-sm">Awaiting Inference Results</p>
-            </div>
-        );
-    }
+export function UncertaintyPanel({ results }: UncertaintyPanelProps) {
+  const unc = results?.uncertainty;
 
-    const { prediction, uncertainty } = results;
-
-    return (
-        <div className="panel flex flex-col h-full">
-            <div className="panel-header">
-                <Target className="text-indigo-400" size={20} />
-                <h3 className="panel-title m-0">Uncertainty Estimation</h3>
-            </div>
-
-            <div className="flex-1 space-y-2 mt-2">
-                <MetricBar
-                    label="Prediction Confidence"
-                    value={prediction?.confidence_score || 0}
-                    type={prediction?.confidence_score > 80 ? 'success' : 'warning'}
-                />
-
-                <div className="pt-4 border-t border-slate-800">
-                    <MetricBar
-                        label="Aleatoric Uncertainty"
-                        value={uncertainty?.aleatoric || 0}
-                        type={uncertainty?.aleatoric > 20 ? 'danger' : 'info'}
-                        desc="Inherent data noise (e.g. scan artifacts, low contrast)."
-                    />
-                    <MetricBar
-                        label="Epistemic Uncertainty"
-                        value={uncertainty?.epistemic || 0}
-                        type={uncertainty?.epistemic > 20 ? 'warning' : 'info'}
-                        desc="Model ignorance (out-of-distribution detection)."
-                    />
-                </div>
-
-                {uncertainty?.is_high_uncertainty && (
-                    <div className="mt-6 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex gap-3">
-                        <AlertCircle className="text-amber-500 shrink-0" size={20} />
-                        <div>
-                            <h4 className="text-sm font-semibold text-amber-400">High Uncertainty Detected</h4>
-                            <p className="text-xs text-amber-500/80 mt-1">
-                                The model lacks sufficient confidence or data quality. Clinical review highly recommended.
-                            </p>
-                        </div>
-                    </div>
-                )}
-            </div>
+  return (
+    <div className="panel flex flex-col h-full">
+      <div className="panel-header">
+        <ShieldAlert className="text-rose-400" size={20} />
+        <h3 className="panel-title m-0">Uncertainty Estimation</h3>
+      </div>
+      
+      {!unc ? (
+        <div className="flex-1 flex items-center justify-center min-h-[120px]">
+          <p className="text-sm text-slate-500 italic">No data yet</p>
         </div>
-    );
+      ) : (
+        <div className="space-y-5 flex-1">
+          {/* Epistemic */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-end">
+              <div>
+                <span className="block text-xs font-semibold text-slate-300">Epistemic Uncertainty</span>
+                <span className="text-[10px] text-slate-500">Model knowledge gap</span>
+              </div>
+              <span className="text-sm font-bold text-rose-400">{unc.epistemic.toFixed(1)}%</span>
+            </div>
+            <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-rose-600 to-rose-400 rounded-full"
+                style={{ width: `${Math.min(100, unc.epistemic)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Aleatoric */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-end">
+              <div>
+                <span className="block text-xs font-semibold text-slate-300">Aleatoric Uncertainty</span>
+                <span className="text-[10px] text-slate-500">Data noise & artifacts</span>
+              </div>
+              <span className="text-sm font-bold text-amber-400">{unc.aleatoric.toFixed(1)}%</span>
+            </div>
+            <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full"
+                style={{ width: `${Math.min(100, unc.aleatoric)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-800 flex items-start gap-2">
+            <Info size={14} className="text-slate-500 mt-0.5 shrink-0" />
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Derived from 10-pass MC Dropout ensemble variance. High epistemic variance ({'>'}30%) triggers automatic SimpleITK registration.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
